@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 output_size = 10
 learning_rate = 0.001
 batch_size = 10
-epocas = 30
+epocas = 90
 
 torch.manual_seed(41)  # Fijamos la semilla para reproducibilidad a la hora de usar aleatoriedad.
                        # Lo quitamos despues de realizar las pruebas
@@ -120,7 +120,7 @@ for i in range(epochs):
     # Porcentajes de aciertos en entrenamiento
     train_acc = trn_corr.item() / len(train_data) * 100
 
-    # Guardmos los porcentajes de aciertos en entrenamiento por época
+    # Guardamos los porcentajes de aciertos en entrenamiento por época
     train_accuracies.append(train_acc)
 
     train_losses.append(avg_loss) # Guardamos la pérdida del último batch
@@ -199,6 +199,8 @@ df_cm = pd.DataFrame(cm, index=range(10), columns=range(10  ))
 plt.figure(figsize=(10,7))
 plt.title('Matriz de Confusión')
 sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel('Clases reales')      # Etiqueta del eje X
+plt.ylabel('Clases predichas')   # Etiqueta del eje Y
 plt.show()
 
 # Visualización: mostrar cómo una imagen del conjunto de prueba se transforma
@@ -234,9 +236,6 @@ def visualize_image_through_layers(model, image_tensor, idx=None):
         img_batch = img.view(1, 1, 28, 28)
 
         a1 = F.relu(model.conv1(img_batch))
-        #p1 = F.max_pool2d(a1, kernel_size=2, stride=2)
-        #a2 = F.relu(model.conv2(p1))
-        #p2 = F.max_pool2d(a2, kernel_size=2, stride=2)
 
         # Mostrar original
         plt.figure(figsize=(3,3))
@@ -250,9 +249,6 @@ def visualize_image_through_layers(model, image_tensor, idx=None):
 
         # Mostrar activaciones
         plot_feature_maps(a1.squeeze(0), title='After conv1 (ReLU)')
-        #plot_feature_maps(p1.squeeze(0), title='After pool1')
-        #plot_feature_maps(a2.squeeze(0), title='After conv2 (ReLU)')
-        #plot_feature_maps(p2.squeeze(0), title='After pool2')
 
 # Ejemplo: visualizar la imagen con índice 44 del test set
 example_idx = 44

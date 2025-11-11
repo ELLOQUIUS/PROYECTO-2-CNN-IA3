@@ -185,7 +185,7 @@ for i in range(epochs):
     # Porcentajes de aciertos en entrenamiento
     train_acc = trn_corr.item() / len(train_data) * 100
 
-    # Guardmos los porcentajes de aciertos en entrenamiento por época
+    # Guardamos los porcentajes de aciertos en entrenamiento por época
     train_accuracies.append(train_acc)
 
     train_losses.append(avg_loss) # Guardamos la pérdida del último batch
@@ -267,6 +267,8 @@ df_cm = pd.DataFrame(cm, index=range(10), columns=range(10  ))
 plt.figure(figsize=(10,7))
 plt.title('Matriz de Confusión')
 sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel('Clases reales')      # Etiqueta del eje X
+plt.ylabel('Clases predichas')   # Etiqueta del eje Y
 plt.show()
 
 # Para probar un valor unico en el modelo
@@ -278,7 +280,6 @@ with torch.no_grad():
     single_image = test_data[44][0].view(1,1,28,28)  # Batch size 1, 1 canal de color, 28x28 imagen
     output = model(single_image)
 print(f'La clase predicha para la imagen 44 es: {output.argmax().item()}')'''
-
 
 
 # Visualización: mostrar cómo una imagen del conjunto de prueba se transforma
