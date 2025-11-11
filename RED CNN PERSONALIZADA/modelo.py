@@ -58,12 +58,13 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # 10 clases (números del 0 al 9)
 output_size = 10
 learning_rate = 0.0001
 batch_size = 10
-epocas = 3
+epocas = 6
 
 torch.manual_seed(41)  # Fijamos la semilla para reproducibilidad a la hora de usar aleatoriedad.
                        # Lo quitamos despues de realizar las pruebas
@@ -121,16 +122,18 @@ class ConvolutionalNN(nn.Module):
         x = F.relu(self.fc1(x)) # Primera capa fully connected con ReLU
         x = F.relu(self.fc2(x)) # Segunda capa fully connected con ReLU
         x = self.fc3(x) # Capa de salida
-        return F.log_softmax(x, dim=1) # Aplicamos log_softmax en la salida
+        #return F.log_softmax(x, dim=1) # Aplicamos log_softmax en la salida. Esta comentado ya que CrossEntropyLoss
+                                        # ya incluye log_softmax internamente, por lo que no es necesario aplicarlo aquí.
+        return x
 
 # Creamos una instancia del modelo
 model = ConvolutionalNN()
 
 # Definimos la función de pérdida y el optimizador
 criterion = nn.CrossEntropyLoss() # Función de pérdida para clasificación multiclase
-optimizer = optim.Adam(model.parameters(), lr=learning_rate) # Optimizador SGD
+optimizer = optim.Adam(model.parameters(), lr=learning_rate) # Optimizador SGD (Stochastic Gradient Descent)
 
-# Para medir el tiempo de entrenamiento, seteamos loss tiempos
+# Para medir el tiempo de entrenamiento, seteamos los tiempos
 start_time = time.time()
 
 # Creamos variables para llevar un registro
@@ -238,7 +241,7 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
-# Hacemos una prueba con un batch de todos los datos de prueba
+# Hacemos una prueba con un batch de todos los datos de prueba. Alrededor de 10000 imagenes de prueba
 test_loader = DataLoader(test_data, batch_size=len(test_data), shuffle=False)
 
 with torch.no_grad():
@@ -248,7 +251,7 @@ with torch.no_grad():
         predicted = torch.max(y_test_pred.data, 1)[1]
         correct += (predicted == y_test).sum()
 
-print(f'Precisión total en el conjunto de prueba: {correct.item()/len(test_data)*100}%')
+print(f'\nPrecisión total en el conjunto de prueba: {correct.item()/len(test_data)*100}%')
 
 # Matriz de confusión
 # Muesta la cantidad de valores predichos correctamente e incorrectamente por clase
@@ -317,7 +320,20 @@ def visualize_image_through_layers(model, image_tensor, idx=None):
 
         # Mostrar original
         plt.figure(figsize=(3,3))
-        plt.imshow(img.squeeze(0).cpu().numpy(), cmap='gray')
+
+        # Esto es para imágenes externas al conjunto MNIST
+        # img puede tener shape (28,28), (1,28,28) o (1,1,28,28).
+        disp = img.squeeze().cpu().numpy()
+        # Si queda como (C,H,W) con C==3, transponer a (H,W,3) para imshow;
+        # si C==1, quitar la dimensión de canal.
+        if disp.ndim == 3:
+            if disp.shape[0] == 3:
+                disp = np.transpose(disp, (1, 2, 0))
+            elif disp.shape[0] == 1:
+                disp = disp.squeeze(0)
+
+
+        plt.imshow(disp, cmap='gray')
         title = f'Original'
         if idx is not None:
             title += f' (idx={idx})'
@@ -331,19 +347,59 @@ def visualize_image_through_layers(model, image_tensor, idx=None):
         plot_feature_maps(a2.squeeze(0), title='After conv2 (ReLU)')
         plot_feature_maps(p2.squeeze(0), title='After pool2')
 
-        # Mostrar vector aplanado
-        flat = p2.view(-1).cpu().numpy()
-        plt.figure(figsize=(8,2))
-        plt.plot(flat)
-        plt.title('Flattened feature vector (antes de FC)')
-        plt.xlabel('Index')
-        plt.ylabel('Activation (arb.)')
-        plt.grid(True)
-        plt.show()
+# ---------- Helpers para usar imágenes externas ----------
+def preprocess_external_image(path, invert_if_needed=True):
+    """Carga una imagen desde `path` y la convierte a tensor 1x1x28x28 listo para el modelo.
 
+    Pasos:
+    - Abre y convierte a escala de grises
+    - Redimensiona a 28x28 (antialias)
+    - Normaliza a [0,1]
+    - Invierte los valores si la imagen parece tener fondo claro (para coincidir con MNIST)
+    - Devuelve un tensor torch.float32 shape (1,1,28,28)
+    """
+    img = Image.open(path).convert('L')  # L = grayscale
+    # Redimensionar a 28x28 (ANTIALIAS para mejor calidad)
+    try:
+        img = img.resize((28, 28), Image.ANTIALIAS)
+    except Exception:
+        img = img.resize((28, 28))
+    arr = np.array(img).astype(np.float32) / 255.0  # escala 0..1
+
+    # En MNIST el fondo es oscuro (cercano a 0) y la cifra clara (cercana a 1).
+    # Si la foto tiene fondo claro (media alta), invertimos.
+    if invert_if_needed:
+        if arr.mean() > 0.5:
+            arr = 1.0 - arr
+
+    tensor = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)  # 1 x 1 x 28 x 28
+    return tensor.type(torch.float32)
+
+
+def predict_external_image(model, image_path, device='cpu'):
+    """Preprocesa `image_path`, pasa por `model` y devuelve (predicción, probs).
+
+    - pred: entero con la clase (0..9)
+    - probs: array numpy con probabilidades por clase
+    """
+    model.eval()
+    img_t = preprocess_external_image(image_path).to(device)
+    with torch.no_grad():
+        logits = model(img_t)
+        probs = torch.softmax(logits, dim=1)
+        pred = int(probs.argmax(dim=1).item())
+        #print(f'\nLa clase predicha para la imagen es: {logits.argmax().item()}')
+    return pred, probs.squeeze(0).cpu().numpy()
 
 # Ejemplo: visualizar la imagen con índice 44 del test set
 example_idx = 44
 img_tensor, label = test_data[example_idx]
-print(f'Label real de la imagen {example_idx}: {label}')
+print(f'\nLabel real de la imagen {example_idx}: {label}')
 visualize_image_through_layers(model, img_tensor, idx=example_idx)
+
+# Visualizar una imagen externa a través de las capas
+img_t = preprocess_external_image('prueba-1.jpg').to(device='cpu')
+visualize_image_through_layers(model, img_t)
+# Ejemplo de uso de prediccion de imagen externa (descomentar y ajustar la ruta para probar):
+pred, probs = predict_external_image(model, 'prueba-1.jpg')
+print(f'\nPredicción: {pred}, Probabilidades: {probs}')
