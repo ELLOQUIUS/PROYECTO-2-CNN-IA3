@@ -64,7 +64,7 @@ from PIL import Image
 output_size = 10
 learning_rate = 0.0001
 batch_size = 10
-epocas = 6
+epocas = 5
 
 torch.manual_seed(41)  # Fijamos la semilla para reproducibilidad a la hora de usar aleatoriedad.
                        # Lo quitamos despues de realizar las pruebas
@@ -131,7 +131,7 @@ model = ConvolutionalNN()
 
 # Definimos la función de pérdida y el optimizador
 criterion = nn.CrossEntropyLoss() # Función de pérdida para clasificación multiclase
-optimizer = optim.Adam(model.parameters(), lr=learning_rate) # Optimizador SGD (Stochastic Gradient Descent)
+optimizer = optim.Adam(model.parameters(), lr=learning_rate) # Optimizador Adam
 
 # Para medir el tiempo de entrenamiento, seteamos los tiempos
 start_time = time.time()
