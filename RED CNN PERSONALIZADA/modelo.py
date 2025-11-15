@@ -2,7 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import time
-import seaborn as sns
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from utils.graficas import plot_training_validation_loss, plot_accuracy, plot_confusion_matrix, visualize_image_through_layers
+from utils.procesamiento_externo import preprocess_external_image, predict_external_image
+from utils.carga_prueba_modelos import save_model, load_model
 
 '''
 Este módulo contiene funciones de activación y pérdida que no requieren ser
@@ -56,15 +63,12 @@ from torchvision.utils import make_grid
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-from PIL import Image
 
 # 10 clases (números del 0 al 9)
 output_size = 10
 learning_rate = 0.0001
 batch_size = 10
-epocas = 5
+epocas = 2
 
 torch.manual_seed(41)  # Fijamos la semilla para reproducibilidad a la hora de usar aleatoriedad.
                        # Lo quitamos despues de realizar las pruebas
@@ -219,27 +223,10 @@ total = current_time - start_time
 print(f'Tiempo total de entrenamiento: {total/60} minutos')
 
 # Graficamos las pérdidas de entrenamiento y validacion
-#train_losses = [tl.item() for tl in train_losses]
-plt.plot(train_losses, label='Training Loss')
-plt.plot(val_losses, label='Validation Loss')
-plt.title('Loss over Epochs')
-plt.xlabel('Epoch')
-plt.ylabel('Average Loss')
-plt.legend()
-plt.grid(True)
-plt.show() 
+plot_training_validation_loss(train_losses, val_losses)
 
 # Graficamos la precisión al final de cada época
-#plt.plot([t/rev_dur_epoc for t in train_correct], label='Training Accuracy') # t/rev_dur_epoc es el número de batches de entrenamiento por época elegido
-#plt.plot([t/(rev_dur_epoc/5) for t in val_correct], label='Validation Accuracy') # t/(rev_dur_epoc/5) es el número de batches de prueba por época
-plt.plot(train_accuracies, label='Training Accuracy')
-plt.plot(val_accuracies, label='Validation Accuracy')
-plt.title('Accuracy al final de cada epoca')
-plt.xlabel('Epoch')
-plt.ylabel('Percent of Correct Predictions')
-plt.legend()
-plt.grid(True)
-plt.show()
+plot_accuracy(train_accuracies, val_accuracies)
 
 # Hacemos una prueba con un batch de todos los datos de prueba. Alrededor de 10000 imagenes de prueba
 test_loader = DataLoader(test_data, batch_size=len(test_data), shuffle=False)
@@ -256,20 +243,7 @@ print(f'\nPrecisión total en el conjunto de prueba: {correct.item()/len(test_da
 # Matriz de confusión
 # Muesta la cantidad de valores predichos correctamente e incorrectamente por clase
 # Por ejemplo, puede mostrar cuántos '3' fueron clasificados como '5', etc.
-all_preds = torch.tensor([])
-with torch.no_grad():
-    for X_test, _ in test_loader:
-        y_pred_test = model(X_test)
-        predicted = torch.max(y_pred_test.data, 1)[1]
-        all_preds = torch.cat((all_preds, predicted), dim=0)
-cm = confusion_matrix(test_data.targets, all_preds.numpy())
-df_cm = pd.DataFrame(cm, index=range(10), columns=range(10  ))
-plt.figure(figsize=(10,7))
-plt.title('Matriz de Confusión')
-sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues')
-plt.xlabel('Clases reales')      # Etiqueta del eje X
-plt.ylabel('Clases predichas')   # Etiqueta del eje Y
-plt.show()
+plot_confusion_matrix(model, test_loader, test_data.targets)
 
 # Para probar un valor unico en el modelo
 # Vemos la imagen número 44 del conjunto
@@ -281,126 +255,21 @@ with torch.no_grad():
     output = model(single_image)
 print(f'La clase predicha para la imagen 44 es: {output.argmax().item()}')'''
 
-
-# Visualización: mostrar cómo una imagen del conjunto de prueba se transforma
-def plot_feature_maps(maps, title=None, max_cols=6):
-    """Dibuja las feature maps (maps puede ser tensor CxHxW o 1xCxHxW).
-    Cada canal se muestra como una mini-imagen en una cuadrícula."""
-    maps = maps.detach().cpu()
-    if maps.dim() == 4 and maps.size(0) == 1:
-        maps = maps.squeeze(0)
-    # ahora maps tiene shape (C, H, W)
-    C = maps.shape[0]
-    cols = min(C, max_cols)
-    rows = (C + cols - 1) // cols
-    plt.figure(figsize=(cols * 2, rows * 2))
-    for i in range(C):
-        plt.subplot(rows, cols, i + 1)
-        fm = maps[i]
-        fm = (fm - fm.min()) / (fm.max() - fm.min() + 1e-6)
-        plt.imshow(fm, cmap='viridis')
-        plt.axis('off')
-    if title:
-        plt.suptitle(title)
-    plt.show()
-
-def visualize_image_through_layers(model, image_tensor, idx=None):
-    """Muestra la imagen original y las activaciones después de conv1, pool1, conv2, pool2.
-    image_tensor debe ser shape (1,28,28) o (28,28)."""
-    model.eval()
-    with torch.no_grad():
-        img = image_tensor.clone()
-        if img.dim() == 2:
-            img = img.unsqueeze(0)
-        img_batch = img.view(1, 1, 28, 28)
-
-        a1 = F.relu(model.conv1(img_batch))
-        p1 = F.max_pool2d(a1, kernel_size=2, stride=2)
-        a2 = F.relu(model.conv2(p1))
-        p2 = F.max_pool2d(a2, kernel_size=2, stride=2)
-
-        # Mostrar original
-        plt.figure(figsize=(3,3))
-
-        # Esto es para imágenes externas al conjunto MNIST
-        # img puede tener shape (28,28), (1,28,28) o (1,1,28,28).
-        disp = img.squeeze().cpu().numpy()
-        # Si queda como (C,H,W) con C==3, transponer a (H,W,3) para imshow;
-        # si C==1, quitar la dimensión de canal.
-        if disp.ndim == 3:
-            if disp.shape[0] == 3:
-                disp = np.transpose(disp, (1, 2, 0))
-            elif disp.shape[0] == 1:
-                disp = disp.squeeze(0)
-
-
-        plt.imshow(disp, cmap='gray')
-        title = f'Original'
-        if idx is not None:
-            title += f' (idx={idx})'
-        plt.title(title)
-        plt.axis('off')
-        plt.show()
-
-        # Mostrar activaciones
-        plot_feature_maps(a1.squeeze(0), title='After conv1 (ReLU)')
-        plot_feature_maps(p1.squeeze(0), title='After pool1')
-        plot_feature_maps(a2.squeeze(0), title='After conv2 (ReLU)')
-        plot_feature_maps(p2.squeeze(0), title='After pool2')
-
-# ---------- Helpers para usar imágenes externas ----------
-def preprocess_external_image(path, invert_if_needed=True):
-    """Carga una imagen desde `path` y la convierte a tensor 1x1x28x28 listo para el modelo.
-
-    Pasos:
-    - Abre y convierte a escala de grises
-    - Redimensiona a 28x28 (antialias)
-    - Normaliza a [0,1]
-    - Invierte los valores si la imagen parece tener fondo claro (para coincidir con MNIST)
-    - Devuelve un tensor torch.float32 shape (1,1,28,28)
-    """
-    img = Image.open(path).convert('L')  # L = grayscale
-    # Redimensionar a 28x28 (ANTIALIAS para mejor calidad)
-    try:
-        img = img.resize((28, 28), Image.ANTIALIAS)
-    except Exception:
-        img = img.resize((28, 28))
-    arr = np.array(img).astype(np.float32) / 255.0  # escala 0..1
-
-    # En MNIST el fondo es oscuro (cercano a 0) y la cifra clara (cercana a 1).
-    # Si la foto tiene fondo claro (media alta), invertimos.
-    if invert_if_needed:
-        if arr.mean() > 0.5:
-            arr = 1.0 - arr
-
-    tensor = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)  # 1 x 1 x 28 x 28
-    return tensor.type(torch.float32)
-
-
-def predict_external_image(model, image_path, device='cpu'):
-    """Preprocesa `image_path`, pasa por `model` y devuelve (predicción, probs).
-
-    - pred: entero con la clase (0..9)
-    - probs: array numpy con probabilidades por clase
-    """
-    model.eval()
-    img_t = preprocess_external_image(image_path).to(device)
-    with torch.no_grad():
-        logits = model(img_t)
-        probs = torch.softmax(logits, dim=1)
-        pred = int(probs.argmax(dim=1).item())
-        #print(f'\nLa clase predicha para la imagen es: {logits.argmax().item()}')
-    return pred, probs.squeeze(0).cpu().numpy()
-
-# Ejemplo: visualizar la imagen con índice 44 del test set
-example_idx = 44
+# Ejemplo: visualizar la imagen con índice 44 del test set (descomentar para probar)
+'''example_idx = 44
 img_tensor, label = test_data[example_idx]
 print(f'\nLabel real de la imagen {example_idx}: {label}')
-visualize_image_through_layers(model, img_tensor, idx=example_idx)
+visualize_image_through_layers(model, img_tensor, idx=example_idx)'''
 
-# Visualizar una imagen externa a través de las capas
-img_t = preprocess_external_image('prueba-1.jpg').to(device='cpu')
+# Visualizar una imagen externa a través de las capas (descomentar para probar)
+'''img_t = preprocess_external_image('../datos_externos_prueba/prueba-2.jpg').to(device='cpu')
 visualize_image_through_layers(model, img_t)
 # Ejemplo de uso de prediccion de imagen externa (descomentar y ajustar la ruta para probar):
-pred, probs = predict_external_image(model, 'prueba-1.jpg')
-print(f'\nPredicción: {pred}, Probabilidades: {probs}')
+pred, probs = predict_external_image(model, '../datos_externos_prueba/prueba-2.jpg')
+print(f'\nPredicción: {pred}, Probabilidades: {probs}')'''
+
+# Para guardar un modelo modelo (no hacer esto cada vez, solo cuando se quiera guardar el mejor modelo)
+# save_model(model)
+
+# CARGAR MODELO ENTRENADO Y PROBARLO
+# load_model(ConvolutionalNN, "mejor_modelo/mejor_modelo.pth", test_loader, test_data)

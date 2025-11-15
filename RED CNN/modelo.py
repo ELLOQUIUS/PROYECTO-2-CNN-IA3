@@ -3,19 +3,25 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import time
-import seaborn as sns
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 import pandas as pd
 from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from utils.graficas import plot_training_validation_loss, plot_accuracy, plot_confusion_matrix, visualize_image_through_layers
+from utils.procesamiento_externo import preprocess_external_image, predict_external_image
+from utils.carga_prueba_modelos import save_model, load_model
 
 # 10 clases (números del 0 al 9)
 output_size = 10
 learning_rate = 0.0001
 batch_size = 100
-epocas = 30
+epocas = 2
 
 torch.manual_seed(41)  # Fijamos la semilla para reproducibilidad a la hora de usar aleatoriedad.
                        # Lo quitamos despues de realizar las pruebas
@@ -154,24 +160,10 @@ total = current_time - start_time
 print(f'\nTiempo total de entrenamiento: {total/60} minutos')
 
 # Graficamos las pérdidas de entrenamiento y validacion
-plt.plot(train_losses, label='Training Loss')
-plt.plot(val_losses, label='Validation Loss')
-plt.title('Loss over Epochs')
-plt.xlabel('Epoch')
-plt.ylabel('Average Loss')
-plt.legend()
-plt.grid(True)
-plt.show() 
+plot_training_validation_loss(train_losses, val_losses)
 
 # Graficamos la precisión al final de cada época
-plt.plot(train_accuracies, label='Training Accuracy')
-plt.plot(val_accuracies, label='Validation Accuracy')
-plt.title('Accuracy al final de cada epoca')
-plt.xlabel('Epoch')
-plt.ylabel('Percent of Correct Predictions')
-plt.legend()
-plt.grid(True)
-plt.show()
+plot_accuracy(train_accuracies, val_accuracies)
 
 # Hacemos una prueba con un batch de todos los datos de prueba. Alrededor de 10000 imagenes de prueba
 test_loader = DataLoader(test_data, batch_size=len(test_data), shuffle=False)
@@ -188,70 +180,10 @@ print(f'\nPrecisión total en el conjunto de prueba: {correct.item()/len(test_da
 # Matriz de confusión
 # Muesta la cantidad de valores predichos correctamente e incorrectamente por clase
 # Por ejemplo, puede mostrar cuántos '3' fueron clasificados como '5', etc.
-all_preds = torch.tensor([])
-with torch.no_grad():
-    for X_test, _ in test_loader:
-        y_pred_test = model(X_test)
-        predicted = torch.max(y_pred_test.data, 1)[1]
-        all_preds = torch.cat((all_preds, predicted), dim=0)
-cm = confusion_matrix(test_data.targets, all_preds.numpy())
-df_cm = pd.DataFrame(cm, index=range(10), columns=range(10  ))
-plt.figure(figsize=(10,7))
-plt.title('Matriz de Confusión')
-sns.heatmap(df_cm, annot=True, fmt='d', cmap='Blues')
-plt.xlabel('Clases reales')      # Etiqueta del eje X
-plt.ylabel('Clases predichas')   # Etiqueta del eje Y
-plt.show()
+plot_confusion_matrix(model, test_loader, test_data.targets)
 
-# Visualización: mostrar cómo una imagen del conjunto de prueba se transforma
-def plot_feature_maps(maps, title=None, max_cols=6):
-    """Dibuja las feature maps (maps puede ser tensor CxHxW o 1xCxHxW).
-    Cada canal se muestra como una mini-imagen en una cuadrícula."""
-    maps = maps.detach().cpu()
-    if maps.dim() == 4 and maps.size(0) == 1:
-        maps = maps.squeeze(0)
-    # ahora maps tiene shape (C, H, W)
-    C = maps.shape[0]
-    cols = min(C, max_cols)
-    rows = (C + cols - 1) // cols
-    plt.figure(figsize=(cols * 2, rows * 2))
-    for i in range(C):
-        plt.subplot(rows, cols, i + 1)
-        fm = maps[i]
-        fm = (fm - fm.min()) / (fm.max() - fm.min() + 1e-6)
-        plt.imshow(fm, cmap='viridis')
-        plt.axis('off')
-    if title:
-        plt.suptitle(title)
-    plt.show()
+# Para guardar un modelo modelo (no hacer esto cada vez, solo cuando se quiera guardar el mejor modelo)
+# save_model(model)
 
-def visualize_image_through_layers(model, image_tensor, idx=None):
-    """Muestra la imagen original y las activaciones después de conv1, pool1, conv2, pool2.
-    image_tensor debe ser shape (1,28,28) o (28,28)."""
-    model.eval()
-    with torch.no_grad():
-        img = image_tensor.clone()
-        if img.dim() == 2:
-            img = img.unsqueeze(0)
-        img_batch = img.view(1, 1, 28, 28)
-
-        a1 = F.relu(model.conv1(img_batch))
-
-        # Mostrar original
-        plt.figure(figsize=(3,3))
-        plt.imshow(img.squeeze(0).cpu().numpy(), cmap='gray')
-        title = f'Original'
-        if idx is not None:
-            title += f' (idx={idx})'
-        plt.title(title)
-        plt.axis('off')
-        plt.show()
-
-        # Mostrar activaciones
-        plot_feature_maps(a1.squeeze(0), title='After conv1 (ReLU)')
-
-# Ejemplo: visualizar la imagen con índice 44 del test set
-example_idx = 44
-img_tensor, label = test_data[example_idx]
-print(f'\nLabel real de la imagen {example_idx}: {label}')
-visualize_image_through_layers(model, img_tensor, idx=example_idx)
+# CARGAR MODELO ENTRENADO Y PROBARLO
+# load_model(ConvolutionalNNSimple, "mejor_modelo/mejor_modelo.pth", test_loader, test_data)
